@@ -1,0 +1,142 @@
+# script to map avalanches from CAIC data
+
+# import directories
+import arcpy
+from arcpy.sa import *
+from arcpy.ia import *
+import os
+import json
+print("imported modules")
+
+# establish parameters
+# set master workspace and overwrite conditions
+arcpy.env.workspace = "C:\\Users\\Emma Tyrrell\\Documents\\PSU_SDS\\THESIS_230226"
+gdbName = (arcpy.env.workspace + "\\Data\\StaticDataGDB.gdb")
+projectBoundary = (gdbName +"\\ProjectBoundary")
+mosaicBit = 1
+mosaicPixelType = "32_BIT_FLOAT"
+GCSsr = arcpy.SpatialReference(4326)
+PCSsr = arcpy.SpatialReference(6432)
+arcpy.env.overwriteOutput = True
+arcpy.env.qualifiedFieldNames = False
+print("master parameters established")
+
+# set terrain data workspace
+terrainDataFilesWorkspace = (arcpy.env.workspace + "\\Data\\TerrainData")
+slopeOutputFiles = (terrainDataFilesWorkspace + "\\SlopeOutputFiles")
+aspectOutputFiles = (terrainDataFilesWorkspace + "\\AspectOutputFiles")
+demFiles = (arcpy.env.workspace + "\\Data\\DEM")
+mosaicAspectName = "aspectMosaic"
+mosaicSlopeName = "slopeMosaic"
+print("terrain parameters established")
+
+# set avy data workspace
+AvyDataWorkspace = (arcpy.env.workspace + "\\Data\\AvyData")
+AvyDataTable = (AvyDataWorkspace + "\\2022\\CAICAvyExplorer_Jan22.csv")
+xField = "X_Coord"
+yField = "Y_Coord"
+outAvyPointClass = (AvyDataWorkspace + "\\AvyPointClass.shp")
+projectedAvyOutPointClass = (AvyDataWorkspace + "\\AvyPointClass_projected.shp")
+avyPointClipped = (gdbName + "\\MasterAvyPointClass")
+masterAvyPointClass = (gdbName + "\\MasterAvyPointClass")
+print("avy parameters established")
+
+# hrrr model parameters
+hrrrDataWorkspace = (arcpy.env.workspace + "\\Data\\HRRR")
+hrrrMosaicDataset = "Jan2022HRRR"
+Jan2022Workspace = (hrrrDataWorkspace + "\\012022")
+outVariablesJan2022HRRR = (Jan2022Workspace + "\\OutVariables")
+hrrr01012022MDfile = (Jan2022Workspace + "\\hrrr.t00z.wrfsfcf24.grib2")
+hrrrModelVaribles = ["ASNOW@SFC", "CSNOW@SFC", "GUST@SFC", "PRATE@SFC", "SFCR@SFC", "SNOD@SFC", "SNOC@SFC", "TCDC@BCY",
+                     "TCDC@EATM", "TMP@SFC", "VEG@SFC", "WIND@HTGL"]
+print("hrrr model parameters established")
+
+# establish output parameters
+testAvyhrrrPointOutput = (gdbName + "\\testAvyHRRRSnowfallWindPointclass")
+print("output data parameters established")
+
+# select by attribute for avy incidents on Jan 1, 2022
+# try:
+#     # run tool for XY class
+#     arcpy.XYTableToPoint_management(AvyDataTable, outAvyPointClass, xField, yField, "", GCSsr)
+#     print("point class created")
+#
+#     # project class into proper coordinate system
+#     arcpy.Project_management(outAvyPointClass, projectedAvyOutPointClass, PCSsr)
+#     print("coordinate system projected")
+#
+#     # add field for StdDate
+#     arcpy.AddField_management(projectedAvyOutPointClass, "StdDate", "TEXT", "", "", "", "", "NULLABLE", "REQUIRED")
+#     print("field added")
+#
+#     # Calculate field
+#     fields = arcpy.ListFields(projectedAvyOutPointClass)
+#     for field in fields:
+#         print(field.name)
+#
+#     # clip avy features
+#     arcpy.Clip_analysis(projectedAvyOutPointClass, projectBoundary, avyPointClipped)
+#     print("clipped avy feature")
+#
+# except Exception as ex:
+#     print(ex)
+# # load in md raster parameter and save to path
+# for file in Jan2022Workspace:
+#     file = arcpy.Raster(file, True)
+#     print(file + " defined as md raster")
+
+# create a mosaic dataset of only key variables
+try:
+    # create empty mosaic data set
+    arcpy.CreateMosaicDataset_management(gdbName, "Jan2022HRRR", PCSsr, "", mosaicPixelType)
+    print("multidimensional mosaic dataset created")
+
+    # create test subset of all needed variables
+    walk = arcpy.da.Walk(Jan2022Workspace, topdown=True, datatype="RasterDataset")
+    for dirpath, dirnames, filenames in walk:
+        for filename in filenames:
+
+            hrrrVariable_filename = f"{filename[:4]}targetVariables.grib2"
+
+            arcpy.SubsetMultidimensionalRaster_md(os.path.join(dirpath, filename),
+                                                  (outVariablesJan2022HRRR + "\\" + f"{filename[:4]}targetVariables.grib2"),
+                                                  [hrrrModelVaribles])
+            print(hrrrVariable_filename + " subset created")
+
+    # add rasters of needed variables to mosaic dataset
+    walk = arcpy.da.Walk(outVariablesJan2022HRRR, topdown=True, datatype="RasterDataset")
+    for dirpath, dirnames, filenames in walk:
+        for filename in filenames:
+            arcpy.AddRastersToMosaicDataset_management((gdbName + "\\" + hrrrMosaicDataset), "GRIB",
+                                                           os.path.join(dirpath, filename), "", "", "", "", 10, "", PCSsr,
+                                                       "", "", "EXCLUDE_DUPLICATES", "", "CALCULATE_STATISTICS")
+            print(filename + " added to mosaic")
+
+except Exception as ex:
+    print(ex)
+
+# sample avy data on two data points
+try:
+    # create point class
+    arcpy.CreateFeatureclass_management(gdbName, "testAvySlopePointclass", "POINT", avyPointClipped, "", "",
+                                        PCSsr)
+    print("feature class created for avalanche raster data")
+
+    # copy features to point class
+    arcpy.CopyFeatures_management(avyPointClipped, testAvyhrrrPointOutput)
+    print("features copied")
+
+    # sample points from slope files
+    Sample((gdbName + "\\" + hrrrMosaicDataset), masterAvyPointClass, testAvyhrrrPointOutput, "NEAREST", "OBJECTID",
+           "", "StdTime", "", "", "", "ROW_WISE")
+
+    print("files sampled")
+
+    arcpy.Merge_management([avyPointClipped, testAvyhrrrPointOutput], masterAvyPointClass)
+    print("fields merged")
+
+except Exception as ex:
+    print(ex)
+
+# practice saving with cloud format
+# build transpose
