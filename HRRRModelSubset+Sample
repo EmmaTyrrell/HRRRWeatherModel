@@ -1,0 +1,128 @@
+# script to map avalanches from CAIC data
+
+# import directories
+import arcpy
+from arcpy.ia import *
+print("imported modules")
+
+# establish parameters
+# set master workspace and overwrite conditions
+arcpy.env.workspace = "C:\\Users\\Emma Tyrrell\\Documents\\PSU_SDS\\THESIS_230226"
+gdbName = (arcpy.env.workspace + "\\Data\\StaticDataGDB.gdb")
+projectBoundary = (gdbName + "\\ProjectBoundary")
+mosaicBit = 1
+mosaicPixelType = "32_BIT_FLOAT"
+GCSsr = arcpy.SpatialReference(4326)
+PCSsr = arcpy.SpatialReference(6432)
+arcpy.env.overwriteOutput = True
+arcpy.env.qualifiedFieldNames = False
+print("master parameters established")
+
+# set avy data workspace
+AvyDataWorkspace = (arcpy.env.workspace + "\\Data\\AvyData")
+AvyDataTable = (AvyDataWorkspace + "\\2022\\CAICAvyExplorer_Jan22.csv")
+xField = "X_Coord"
+yField = "Y_Coord"
+outAvyPointClass = (AvyDataWorkspace + "\\AvyPointClass.shp")
+projectedAvyOutPointClass = (AvyDataWorkspace + "\\AvyPointClass_projected.shp")
+# avyPointClipped = (gdbName + "\\MasterAvyPointClass")
+masterAvyPointClass = (AvyDataWorkspace + "\\MasterAvyPointClass.shp")
+print("avy parameters established")
+
+# hrrr model parameters
+hrrrDataWorkspace = (arcpy.env.workspace + "\\Data\\HRRR")
+hrrrMosaicDataset = "Jan2022HRRR"
+Jan2022HRRRWorkspace = (hrrrDataWorkspace + "\\012022")
+outVariablesJan2022HRRR = (Jan2022HRRRWorkspace + "\\OutVariables")
+hrrr01012022MDfile = (Jan2022HRRRWorkspace + "\\hrrr.t00z.wrfsfcf24.grib2")
+hrrrModelVariables = ["ASNOW@SFC", "CSNOW@SFC", "GUST@SFC", "PRATE@SFC", "SFCR@SFC", "SNOD@SFC", "SNOWC@SFC",
+                      "TCDC@BCY", "TCDC@EATM", "TMP@SFC", "VEG@SFC", "WIND@HTGL"]
+print("hrrr model parameters established")
+
+# establish output parameters
+testAvyhrrrPointOutput = (gdbName + "\\testAvyHRRRsubsetPointclass")
+avyWeatherModelData = (gdbName + "\\avyPointWeatherModelData")
+print("output data parameters established")
+
+# create feature point class for avalanche data that's consistent with HRRR model data
+try:
+    # run tool for XY class
+    arcpy.XYTableToPoint_management(AvyDataTable, outAvyPointClass, xField, yField, "", GCSsr)
+    print("point class created")
+
+    # project class into proper coordinate system
+    arcpy.Project_management(outAvyPointClass, projectedAvyOutPointClass, PCSsr)
+    print("coordinate system projected")
+
+    # add field for StdDate
+    arcpy.AddField_management(projectedAvyOutPointClass, "StdDate", "TEXT", "", "", "", "", "NULLABLE", "REQUIRED")
+    print("field added")
+
+    # create fields for year, month, date
+    # year
+    try:
+        arcpy.AddField_management(projectedAvyOutPointClass, "_Year", "SHORT", "", "", 4, "_Year", "NON_NULLABLE",
+                                  "REQUIRED")
+        print("year calculate created")
+
+        arcpy.CalculateField_management(projectedAvyOutPointClass, "_Year", "!Year!", "PYTHON3")
+        print("year field calculated")
+    except Exception as ex:
+        print(ex)
+
+    # month
+    try:
+        arcpy.AddField_management(projectedAvyOutPointClass, "_Month", "SHORT", "", "", 2, "_Month", "NON_NULLABLE",
+                                  "REQUIRED")
+        print("month calculate created")
+
+        arcpy.CalculateField_management(projectedAvyOutPointClass, "_Month", "!Month!", "PYTHON3")
+        print("month field calculated")
+    except Exception as ex:
+        print(ex)
+
+    # day
+    try:
+        arcpy.AddField_management(projectedAvyOutPointClass, "_Day", "SHORT", "", "", 2, "_Day", "NON_NULLABLE",
+                                  "REQUIRED")
+        print("day calculate created")
+
+        arcpy.CalculateField_management(projectedAvyOutPointClass, "_Day", "!Day!", "PYTHON3")
+        print("day field calculated")
+    except Exception as ex:
+        print(ex)
+
+    # calculate and clip final point class
+    try:
+        StdDateExpression = '"!_Year!" + "-" + "0" + "!_Month!" + "-" + "0" + "!_Day!"'
+        arcpy.CalculateField_management(projectedAvyOutPointClass, "StdDate", StdDateExpression, "PYTHON3", "", "DATE")
+        print("field calculated")
+
+        # clip avy features
+        arcpy.Clip_analysis(projectedAvyOutPointClass, projectBoundary, masterAvyPointClass)
+        print("clipped avy feature")
+
+        # delete working files
+        arcpy.Delete_management([outAvyPointClass, projectedAvyOutPointClass])
+        print("memory classes deleted")
+    except Exception as ex:
+        print(ex)
+except Exception as ex:
+    print(ex)
+
+# create a subset for one of the multidimensional raster layers
+try:
+    arcpy.SubsetMultidimensionalRaster_md((Jan2022HRRRWorkspace + "\\hrrr.t00z.wrfsfcf24V1.grib2"),
+                                          (outVariablesJan2022HRRR + "\\hrrr.t00z.wrfsfcf24V1_variables.grib2"),
+                                          hrrrModelVariables)
+    print("subset created")
+
+    # sample point data to subset
+    Sample((outVariablesJan2022HRRR + "\\hrrr.t00z.wrfsfcf24V1_variables.grib2"), masterAvyPointClass,
+           testAvyhrrrPointOutput, "NEAREST", "FID", "ALL_SLICES", "", "", "", "", "ROW_WISE", "FEATURE_CLASS")
+    print("sample created")
+
+    arcpy.Merge_management([masterAvyPointClass, testAvyhrrrPointOutput], avyWeatherModelData)
+
+except Exception as ex:
+    print(ex)
