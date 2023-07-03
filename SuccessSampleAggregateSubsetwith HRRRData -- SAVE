@@ -1,0 +1,73 @@
+# script to map avalanches from CAIC data
+
+# import directories
+import arcpy
+# from arcpy import env
+# from arcpy.ia import *
+from arcpy.sa import *
+print("imported modules")
+
+# establish parameters
+# set master workspace and overwrite conditions
+arcpy.env.workspace = "C:\\Users\\Emma Tyrrell\\Documents\\PSU_SDS\\THESIS_230226\\Data"
+gdbName = (arcpy.env.workspace + "\\StaticDataGDB.gdb")
+projectBoundary = (gdbName + "\\ProjectBoundary")
+mosaicBit = 1
+mosaicPixelType = "32_BIT_FLOAT"
+GCSsr = arcpy.SpatialReference(4326)
+PCSsr = arcpy.SpatialReference(6431)
+arcpy.env.overwriteOutput = True
+arcpy.env.qualifiedFieldNames = False
+print("master parameters established")
+
+# set avy data workspace
+AvyDataWorkspace = (arcpy.env.workspace + "\\AvyData")
+AvyTable = (AvyDataWorkspace + "\\2022\\CAICAvyExplorer_Jan22.csv")
+xField = "X_Coord"
+yField = "Y_Coord"
+outAvyPointClass = (AvyDataWorkspace + "\\AvyPointClass.shp")
+projectedAvyOutPointClass = (AvyDataWorkspace + "\\AvyPointClass_projected.shp")
+# avyPointClipped = (gdbName + "\\MasterAvyPointClass")
+masterAvyPointClass = (AvyDataWorkspace + "\\MasterAvyPointClass.shp")
+print("avy parameters established")
+
+# hrrr model parameters
+hrrrDataWorkspace = (arcpy.env.workspace + "\\HRRR")
+hrrrMosaicDataset = "Jan2022HRRR"
+Jan2022HRRRWorkspace = (hrrrDataWorkspace + "\\Jan2022")
+outVariablesJan2022HRRR = (arcpy.env.workspace + "\\OutputData")
+hrrr01012022MDfile = (Jan2022HRRRWorkspace + "\\hrrr.t00z.wrfsfcf24.grib2")
+hrrrModelVariables = ["ASNOW@SFC", "CSNOW@SFC", "GUST@SFC", "PRATE@SFC", "SFCR@SFC", "SNOD@SFC", "SNOWC@SFC",
+                      "TCDC@BCY", "TCDC@EATM", "TMP@SFC", "VEG@SFC", "WIND@HTGL"]
+testHRRRfile = (hrrrDataWorkspace + "\\hrrr.t00z.wrfsfcf24 (5).grib2")
+crfHRRR = (hrrrDataWorkspace + "\\testCRFHRRR.crf")
+crtTranspose = (hrrrDataWorkspace + "\\testCRFHRRR_transpose.crf")
+crfTEMP = (hrrrDataWorkspace + "\\testCRFHRRR_transposeTempAgg.crf")
+arcpy.CheckOutExtension("ImageAnalyst")
+print("hrrr model parameters established")
+
+# establish output parameters
+AvyhrrrPointOutput = (gdbName + "\\testAvyHRRRsubsetPointclass")
+avyWeatherModelData = (gdbName + "\\avyPointWeatherModelData")
+print("output data parameters established")
+
+# copy raster tool
+arcpy.CopyRaster_management(testHRRRfile, crfHRRR, "", "", "", "", "", "", "", "", "CRF")
+print("raster copied")
+
+# build multidimensional transpose
+arcpy.BuildMultidimensionalTranspose_md(crfHRRR)
+print("transpose created")
+
+# create subset
+arcpy.SubsetMultidimensionalRaster_md(crfHRRR, crtTranspose, hrrrModelVariables)
+print("subset created")
+
+# create aggregate
+aggMultiTemp = arcpy.ia.AggregateMultidimensionalRaster(crtTranspose, "StdTime", "MEAN", "TMP@SFC", "INTERVAL_KEYWORD", "DAILY")
+aggMultiTemp.save(crfTEMP)
+print("aggregated")
+
+# create sample
+Sample(crfTEMP, masterAvyPointClass, AvyhrrrPointOutput, "NEAREST", "FID", "ALL_SLICES", "", "", "", "", "ROW_WISE", "FEATURE_CLASS")
+print("sampled")
