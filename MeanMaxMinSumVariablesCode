@@ -1,0 +1,94 @@
+# import directories
+import arcpy
+import os
+# from arcpy import env
+# from arcpy.ia import *
+from arcpy.sa import *
+print("imported modules")
+
+# establish parameters
+# set master workspace and overwrite conditions
+arcpy.env.workspace = "C:\\Users\\Emma Tyrrell\\Documents\\PSU_SDS\\THESIS_230226\\Data"
+gdbName = (arcpy.env.workspace + "\\StaticDataGDB.gdb")
+projectBoundary = (gdbName + "\\ProjectBoundary")
+mosaicBit = 1
+mosaicPixelType = "32_BIT_FLOAT"
+GCSsr = arcpy.SpatialReference(4326)
+PCSsr = arcpy.SpatialReference(6431)
+arcpy.env.overwriteOutput = True
+arcpy.env.qualifiedFieldNames = False
+print("master parameters established")
+
+# set avy data workspace
+AvyDataWorkspace = (arcpy.env.workspace + "\\AvyData")
+AvyTable = (AvyDataWorkspace + "\\2022\\CAICAvyExplorer_Jan22.csv")
+xField = "X_Coord"
+yField = "Y_Coord"
+outAvyPointClass = (AvyDataWorkspace + "\\AvyPointClass.shp")
+projectedAvyOutPointClass = (AvyDataWorkspace + "\\AvyPointClass_projected.shp")
+# avyPointClipped = (gdbName + "\\MasterAvyPointClass")
+masterAvyPointClass = (AvyDataWorkspace + "\\MasterAvyPointClass.shp")
+print("avy parameters established")
+
+# set terrain data workspace
+terrainDataFilesWorkspace = (arcpy.env.workspace + "\\Data\\TerrainData")
+demFiles = (arcpy.env.workspace + "\\Data\\DEM")
+demMosaic = "demMosaic"
+slopeFile = (demFiles + "\\slopeMaster.tif")
+aspectFile = (demFiles + "\\aspectMaster.tif")
+slopeClipped = (gdbName + "\\slope_clipped")
+aspectClipped = (gdbName + "\\aspect_clipped")
+print("terrain parameters established")
+
+# hrrr model parameters
+hrrrDataWorkspace = (arcpy.env.workspace + "\\HRRR")
+hrrrMosaic = "HRRRWeatherModels"
+hrrrCRFmosaic = "HRRRWeatherModelsCRF"
+hrrrFiles = (hrrrDataWorkspace + "\\Files_Test")
+outHRRRdata = (arcpy.env.workspace + "\\OutputData")
+hrrrModelVariables = ["ASNOW@SFC", "CSNOW@SFC", "GUST@SFC", "PRATE@SFC", "SFCR@SFC", "SNOD@SFC", "SNOWC@SFC",
+                      "TCDC@BCY", "TCDC@EATM", "TMP@SFC", "VEG@SFC", "WIND@HTGL"]
+meanHRRRVariables = ["GUST@SFC", "PRATE@SFC", "SFCR@SFC", "SNOD@SFC", "SNOWC@SFC", "TCDC@BCY", "TCDC@EATM", "TMP@SFC",
+                     "VEG@SFC", "WIND@HTGL"]
+minnHRRRVariables = ["GUST@SFC", "TMP@SFC", "WIND@HTGL"]
+maxHRRRVariables = ["GUST@SFC", "TMP@SFC", "WIND@HTGL"]
+sumHRRRVariables = ["ASNOW@SFC", "CSNOW@SFC"]
+testHRRRFile = (hrrrFiles + "\\hrrr.t00z.wrfsfcf24.grib2")
+crfHRRRall = (arcpy.env.workspace + "\\OutputData\\testCRFHRRR_all.crf")
+crfTranspose = (arcpy.env.workspace + "\\OutputData\\testCRFHRRR_transpose.crf")
+crfTestMeanFile = (arcpy.env.workspace + "\\OutputData\\mastercrfHRRRModelfile_mean.crf")
+crfTestMinFile = (arcpy.env.workspace + "\\OutputData\\mastercrfHRRRModelfile_min.crf")
+crfTestMaxFile = (arcpy.env.workspace + "\\OutputData\\mastercrfHRRRModelfile_max.crf")
+crfTestSumFile = (arcpy.env.workspace + "\\OutputData\\mastercrfHRRRModelfile_sum.crf")
+crfTestMasterClipped = (gdbName + "\\mastercrfHRRRModelfile_clipped")
+arcpy.CheckOutExtension("ImageAnalyst")
+print("hrrr model parameters established")
+
+# establish output parameters
+AvySamplePointOutput = (gdbName + "\\testAvyPointclass")
+avyWeatherModelData = (gdbName + "\\avyPointWeatherModelData")
+print("output data parameters established")
+
+# aggregate mean files
+aggMultiTemp = arcpy.ia.AggregateMultidimensionalRaster(crfTranspose, "StdTime", "MEAN", meanHRRRVariables, 
+                                                        "INTERVAL_KEYWORD", "DAILY")
+aggMultiTemp.save(crfTestMeanFile)
+print("mean variables aggregated")
+
+# aggregate min files
+aggMultiTemp = arcpy.ia.AggregateMultidimensionalRaster(crfTranspose, "StdTime", "MEAN", minnHRRRVariables, 
+                                                        "INTERVAL_KEYWORD", "DAILY")
+aggMultiTemp.save(crfTestMinFile)
+print("mean variables aggregated")
+
+# aggregate max files
+aggMultiTemp = arcpy.ia.AggregateMultidimensionalRaster(crfTranspose, "StdTime", "MEAN", maxHRRRVariables, 
+                                                        "INTERVAL_KEYWORD", "DAILY")
+aggMultiTemp.save(crfTestMaxFile)
+print("mean variables aggregated")
+
+# aggregate mean files
+aggMultiTemp = arcpy.ia.AggregateMultidimensionalRaster(crfTranspose, "StdTime", "MEAN", sumHRRRVariables, 
+                                                        "INTERVAL_KEYWORD", "DAILY")
+aggMultiTemp.save(crfTestSumFile)
+print("mean variables aggregated")
